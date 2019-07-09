@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>three.js webgl - torus - textures</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <link type="text/css" rel="stylesheet" href="main.css">
+    
+    
+</head>
+
+<body>
+
+<div id="container"></div>
+
+<p id="geometry_info"></p>
+<p id="help_menu">Press H for the Help Menu.</p>
+
+<script type="module">
+    
+    import * as THREE from './three.js/build/three.module.js';
+    import Stats from './three.js/examples/jsm/libs/stats.module.js';
+    import {TrackballControls} from './three.js/examples/jsm/controls/TrackballControls.js';
+	import {DragControls} from './three.js/examples/jsm/controls/DragControls.js';
+
+
+
+    /* GLOBAL VARIABLES DECLARATION */
+    // current geometry mesh
+    var current_geometry;
+    // default initial object, the Torus
+    var current_geometry_key = 1;
+    // current object (geometry + texture)
+    var current_object;
+    // list containing all objects on the scene
+    var objects = [];
+    // possible objects
+    var object_pool = ["Invalid", "Torus", "Cylinder", "Cone", "Sphere", "Paraboloid", "Hyperbolic Paraboloid", "Hyperboloid"];
+    // array to store the materials used for the current mesh
+    var materials = [];
+
+    var light;
+    var vnh;
+    var bbox;
+    var axis;
+    var worldAxis = new THREE.AxesHelper(2);
+
+    // Whether to show the coordinate axes
+    var display_axis = false;
+    // Whether to show the bounding boxes
+    var display_box = false;
+    // Toggle background color
+    var bg_color_toggle = false;
+    // Whether to display vertex normals
+    var display_normals = false;
+    // Whether to draw wireframe or filled polygons
+    var display_wireframe = false;
+    // Whether to apply texture
+    var display_texture = false;
+    // Automatic spin
+    var spin = true;
+
+    // Whether to display the Help Menu
+    var display_help = false;
+    var initial_text = "Press H for the Help Menu.";
+    var menu = "Left-CLick and drag: rotate the scene\r\nRight-Click and drag: pan/translate the scene\r\n Middle-CLick and drag (or mouse roll): zoom in and out the scene \r\na, A: Draw Axes.\r\nb, B: Draw Box.\r\ng, G: Change background color.\r\nx, X: Rotate about x-axis.\r\ny, Y: Rotate about y-axis.\r\nz, Z: Rotate about z-axis.\r\nw, W: Toggle wireframe view.\r\ni, I: Return object to initial position.\r\nn, N: Toggle normal display.\r\no, O: Increment object display: Torus -> Cylinder -> Cone -> Sphere -> Paraboloid -> Hyperbolic Paraboloid -> Hyperboloid.\r\n1,2,3,4,5,6,7: Display the ith object.\r\nt, T: Apply texture.\r\np, P: Procedural x Image Texture.\r\nr, R: Euler angles x Arcball.\r\ns, S: Toggle spin.\r\nh, H: Display help.\r\nEsc: Exit (unused).";
+    menu = menu.replace(/(\r\n|\n|\r)/gm, "<br>");
+    var geometry_info_text;
+    
+
+    // Distance from the center of the tube to the center of the torus
+    var R1 = 1;
+    // Radius of the tube
+    var R2 = 0.3;
+    // Radius in z direction for an ellipsoid
+    var R3 = 0.5;
+    // Number of samples
+    var nR1 = 25;
+    // Number of samples
+    var nR2 = 10;
+    // Pi constant
+    const M_PI_ = 3.14159265358979323846;
+    // Two Pi
+    const TWOPI = 2*M_PI_;
+    // Texture Image Width
+    const checkImageWidth = 128;
+    // Texture Image Height
+    const checkImageHeight = 128;
+
+
+    var renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    document.body.appendChild(renderer.domElement);
+
+    // variables for general use
+    var container, stats;
+    var camera, controls, scene, renderer;
+    var group, plane;
+
+    // Camera position
+    var zobs = 5
+    // Camera viewing angle, also known as opening angle
+    var viewingAngle = 70;
+
+    // Whether to use a procedural texture
+    var procImage = 1;
+    // Whether to use the arcball paradigm
+    var useArcball = 0;
+    // Whether to spin by itself
+    var spin = true;  
+    // Rotation angle increment
+    var rotAngle = 2.0;
+
+
+
+    function posAng(x){
+        // Return a positive angle 
+        if(x < 0.0){
+            return x + TWOPI;
+        }else{
+            return x;
+        }
+    }
+
+    function toRad(x){
+        // Convert an angle to radians 
+        return x*M_PI_/180.0;
+    }
+
+    function toDeg(x){
+        // Convert an angle to degrees
+        return x*180.0/M_PI_;
+    }
+
+    function clamp(x){
+        // Clamp to [0,1] 
+        return Math.min(Math.max(x,0),1)
+    }
+
+    function LEN(x,y,z){
+        // Vector length 
+        return Math.sqrt(x*x + y*y + z*z);
+    }
+
+
+
+    /* Determines which quadric function to set for the current geometry to be displayed 
+     * 'i' determines the quadric function. 
+     * R1, R2, R3, nR1 and nR2 are geometric parameters described at the beginning of the script.
+     */
+    function quadricHandler(i, R1, R2, R3, nR1, nR2){
+        if(i == 1){//Torus
+            current_geometry = new THREE.TorusGeometry(R1, R2, nR2, nR1);
+
+        }else if(i == 2){//Cylinder
+            current_geometry = new THREE.CylinderGeometry(2*R1, 2*R2, nR2, nR1);
+            
+        }else if(i == 3){//Cone
+            current_geometry = new THREE.ConeGeometry(2*R1, 2*R2, nR2, nR1);
+
+        }else if(i == 4){//Sphere, but actually an ellipsoid dependind on R1, R2 and R3
+            current_geometry = new THREE.SphereGeometry(1, nR2, nR1);
+            current_geometry.applyMatrix(new THREE.Matrix4().makeScale(1.5*R1, 1.5*R2, 1.5*R3));
+
+        }else if(i == 5){//Paraboloid
+            
+        }else if(i == 6){//Hyperpoblic Paraboloid
+            
+        }else if(i == 7){//Hyperboloid
+            
+        }
+
+    }
+
+
+
+    document.addEventListener("keydown", onDocumentKeyDown, false);
+
+    /* Keyboard input handler */
+    function onDocumentKeyDown(event) {
+        event = event || window.event;
+        var keyCode = event.keyCode;
+        if (keyCode == 65 || keyCode == 97){// A or a
+            //toggles displaying the axis
+            display_axis= !display_axis;
+
+        }else if (keyCode == 66 || keyCode == 98){// B or b
+            //toggles displaying the bounding box
+            display_box= !display_box;
+
+        }else if (keyCode == 71 || keyCode == 103){// G or g
+            //sets background color between black and yellow-beige
+            bg_color_toggle= !bg_color_toggle;
+
+            if(bg_color_toggle){//light beige
+                scene.background = new THREE.Color(0xfffacd);
+            }else{//black
+                scene.background = new THREE.Color(0x000000);
+            }
+
+        }else if (keyCode == 88 || keyCode == 120){// X or x
+            //rotate around X axis
+            current_object.rotation.x = toRad(rotAngle);
+
+        }else if (keyCode == 89 || keyCode == 121){// Y or y
+            //rotate around Y axis
+            current_object.rotation.y = toRad(rotAngle);
+
+        }else if (keyCode == 90 || keyCode == 122){// Z or z
+            //rotate around Z axis
+            current_object.rotation.z = toRad(rotAngle);
+
+        }else if (keyCode == 73 || keyCode == 105){// I or i
+            //return to initial position
+            scene.remove(current_object);
+            objects.pop();
+            generateObject();
+            current_object.position.x = 0;
+            current_object.position.y = 0;
+            current_object.position.z = 0;
+            scene.add(current_object);
+            objects.push(current_object);
+            
+
+        }else if (keyCode == 87 || keyCode == 119){// W or w
+            //toggles drawing object in wireframe
+            display_wireframe= !display_wireframe;
+
+        }else if (keyCode == 78 || keyCode == 110){// N or n
+            //toggle drawing object's normals
+            display_normals= !display_normals;
+
+        }else if (keyCode == 79 || keyCode == 111){// O or o
+            //selects next object on the list Torus -> Cylinder -> Cone -> Sphere -> Paraboloid -> Hyperbolic Paraboloid -> Hyperboloid
+
+        }else if (keyCode == 82 || keyCode == 114){// R or r
+            //?
+
+        }else if (keyCode == 83 || keyCode == 115){// S or s
+            //toggle spin
+            spin = !spin;
+
+            if(spin){
+                //spin object
+            }else{
+                //stop
+            }
+
+        }else if (keyCode == 84 || keyCode == 116){// T or t
+            //toggles displaying texture on object
+            display_texture = !display_texture;
+
+        }else if (keyCode == 80 || keyCode == 112){// P or p
+            //selects a procedural image as texture
+            
+        }else if (keyCode == 72 || keyCode == 104){// H or h
+            //toggles help menu
+            display_help = !display_help;
+
+            if(display_help){
+                document.getElementById("help_menu").innerHTML = menu;
+            }else{
+                document.getElementById("help_menu").innerHTML = initial_text;
+            }
+
+        }else if (keyCode == 27){// [ESCAPE]
+            //closes the application
+            
+        }else if (keyCode == 49 || keyCode == 50 || keyCode == 51 || keyCode == 52 || keyCode == 53 || keyCode == 54 || keyCode == 55){// 1 or 2 or 3 or 4 or 5 or 6 or 7
+            //selects and displays the ith oject
+            current_geometry_key = parseInt(String.fromCharCode(keyCode));
+            quadricHandler(current_geometry_key, R1, R2, R3, nR1, nR2);
+            geometry_info_text = "\r\n\r\nCurrent object: "+object_pool[current_geometry_key]+"\r\nR1: "+R1+"\r\nR2: "+R2+"\r\nR3: "+R3+"\r\nnR1: "+nR1+"\r\nnR2: "+nR2;
+            geometry_info_text = geometry_info_text.replace(/(\r\n|\n|\r)/gm, "<br>");
+            document.getElementById("geometry_info").innerHTML = geometry_info_text;
+        }
+    }
+
+    /* Creates a 3D object to be displayed */
+    function generateObject(){
+        //clear materials list
+        materials.length = 0;
+        //check for textures
+        if(display_texture){
+            //load textures
+            var loader = new THREE.TextureLoader().load("triforce.jpg");
+            //mapping loaded texture image
+            var material_tex = new THREE.MeshPhongMaterial({map: loader, wireframe: display_wireframe});
+            material_tex.side = THREE.DoubleSide;
+            materials.push(material_tex);
+
+        }else{
+            //apply custom basic colors
+            var material_gold   = new THREE.MeshPhongMaterial({color: 0xc09b30, wireframe: display_wireframe,})
+            material_gold.side = THREE.FrontSide;
+            var material_copper = new THREE.MeshPhongMaterial({color: 0xb44515, wireframe: display_wireframe,})
+            material_copper.side = THREE.BackSide;
+
+            materials.push(material_gold);
+            materials.push(material_copper);
+        }
+
+        //load object mesh with the current geometry configuration and the textures in the materials array to the scene
+        current_object = new THREE.Mesh(current_geometry, materials);
+
+    }
+
+
+    /* Main function for setting the camera, scene, lights, objects and textures */
+    function init(){
+
+        container = document.createElement( 'div' );
+        document.body.appendChild( container );
+        //creates camera
+        camera = new THREE.PerspectiveCamera(viewingAngle, window.innerWidth/window.innerHeight, 0.1, 1000);
+        camera.position.x = 0;
+        camera.position.y = 0;
+        camera.position.z = zobs;
+        //creates scene
+        scene = new THREE.Scene();
+        //creates lights
+        //directional white light
+        light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(0, 0, 5);
+        light.target.position.set(0, 0, 0);
+
+        light.castShadow = true;
+        light.shadow.camera.near = 0.1;
+        light.shadow.camera.far = 4000;
+        light.shadow.mapSize.width = 1024;
+        light.shadow.mapSize.height = 1024;
+
+        scene.add(light);
+        //directional yellow light
+        light = new THREE.DirectionalLight(0xffff00, 1);
+        light.position.set(0, -5, 0);
+        light.target.position.set(0, 0, 0);
+
+        light.castShadow = true;
+        light.shadow.camera.near = 0.1;
+        light.shadow.camera.far = 4000;
+        light.shadow.mapSize.width = 1024;
+        light.shadow.mapSize.height = 1024;
+
+        scene.add(light);
+        //ambient faint white light
+        light = new THREE.AmbientLight(0xA0A0A0, 2);
+        scene.add(light);
+
+        generateObject();
+
+        objects.pop();
+        scene.add(current_object);
+        objects.push(current_object);
+
+
+        renderer = new THREE.WebGLRenderer({antialias: true});
+        renderer.setPixelRatio( window.devicePixelRatio );
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        renderer.shadowMap.enabled = true;
+		renderer.shadowMap.type = THREE.PCFShadowMap;
+        
+        container.appendChild(renderer.domElement);
+
+        controls = new TrackballControls( camera, renderer.domElement );
+        controls.rotateSpeed = 1.0;
+        controls.zoomSpeed = 1.2;
+        controls.panSpeed = 0.8;
+        controls.noZoom = false;
+        controls.noPan = false;
+        controls.staticMoving = true;
+        controls.dynamicDampingFactor = 0.3;
+
+        var dragControls = new DragControls( objects, camera, renderer.domElement );
+		dragControls.addEventListener( 'dragstart', function () {
+			controls.enabled = false;
+		} );
+		dragControls.addEventListener( 'dragend', function () {
+			controls.enabled = true;
+		} );
+
+		stats = new Stats();
+		container.appendChild( stats.dom );
+
+        window.addEventListener('resize', onWindowResize, false );
+
+    }
+
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize( window.innerWidth, window.innerHeight );
+    }
+
+    function animate() {
+        scene.remove(current_object);
+        objects.pop();
+        generateObject();
+
+        
+        //check for axis
+        if(display_axis){
+            current_object.add(worldAxis);
+            var obj_axis = new THREE.AxesHelper(2);
+            current_object.add(obj_axis);
+        }else if(!display_axis){
+
+        }
+
+        scene.add(current_object);
+
+        // check for normals
+        if (display_normals){
+            vnh = new THREE.VertexNormalsHelper(current_object, 0.2, 0xff0000);
+            scene.add(vnh);
+        }else if(!display_normals){
+            scene.remove(vnh)
+        }
+        //check for bounding box
+        if(display_box){
+            current_object.geometry.computeBoundingBox();
+            bbox = current_object.geometry.boundingBox.clone();
+            current_object.updateMatrixWorld( true );
+            bbox.copy( current_object.geometry.boundingBox ).applyMatrix4( current_object.matrixWorld );
+        }else if(!display_box){
+
+        }
+
+        objects.push(current_object);
+        
+        requestAnimationFrame( animate );
+        render();
+        stats.update();
+    }
+
+    function render() {
+        controls.update();
+        renderer.render( scene, camera );
+    }
+
+
+    init();
+    animate();
+    geometry_info_text = "\r\n\r\nCurrent object: "+object_pool[current_geometry_key]+"\r\nR1: "+R1+"\r\nR2: "+R2+"\r\nR3: "+R3+"\r\nnR1: "+nR1+"\r\nnR2: "+nR2;
+    geometry_info_text = geometry_info_text.replace(/(\r\n|\n|\r)/gm, "<br>");
+    document.getElementById("geometry_info").innerHTML = geometry_info_text;
+
+
+
+
+
+
+
+
+    /* TODO 
+     * fix textures
+     * implement simple X,Y,Z key rotation
+     * implement bounding box
+     * fix normals
+     *
+     */
+
+
+
+
+
+
+
+
+
+</script>
+
+
+
+
+
+</body>
+
+
+</html>
